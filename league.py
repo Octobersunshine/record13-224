@@ -10,6 +10,12 @@ class MatchRecord(NamedTuple):
     away_goals: int
 
 
+class Fixture(NamedTuple):
+    round_num: int
+    home: str
+    away: str
+
+
 @dataclass
 class TeamStats:
     name: str
@@ -30,14 +36,67 @@ class TeamStats:
 
 
 class LeagueService:
-    def __init__(self):
+    def __init__(self, teams: list[str] | None = None):
         self._teams: dict[str, TeamStats] = {}
         self._matches: list[MatchRecord] = []
+        self._fixtures: list[Fixture] = []
+        if teams:
+            for name in teams:
+                self._teams[name] = TeamStats(name=name)
 
     def _get_team(self, name: str) -> TeamStats:
         if name not in self._teams:
             self._teams[name] = TeamStats(name=name)
         return self._teams[name]
+
+    def add_team(self, name: str) -> None:
+        if name in self._teams:
+            raise ValueError(f"Team {name} already exists")
+        self._teams[name] = TeamStats(name=name)
+
+    def generate_fixtures(self) -> list[Fixture]:
+        team_names = list(self._teams.keys())
+        if len(team_names) < 2:
+            raise ValueError("Need at least 2 teams to generate fixtures")
+
+        teams = list(team_names)
+        n = len(teams)
+        if n % 2 != 0:
+            teams.append(None)
+            n += 1
+
+        num_rounds = n - 1
+        half = n // 2
+
+        fixtures: list[Fixture] = []
+
+        for r in range(num_rounds):
+            for i in range(half):
+                home = teams[i]
+                away = teams[n - 1 - i]
+                if home is not None and away is not None:
+                    if r % 2 == 0:
+                        fixtures.append(Fixture(r + 1, home, away))
+                    else:
+                        fixtures.append(Fixture(r + 1, away, home))
+            teams.insert(1, teams.pop())
+
+        for r in range(num_rounds):
+            for i in range(half):
+                home = teams[i]
+                away = teams[n - 1 - i]
+                if home is not None and away is not None:
+                    if r % 2 == 0:
+                        fixtures.append(Fixture(num_rounds + r + 1, away, home))
+                    else:
+                        fixtures.append(Fixture(num_rounds + r + 1, home, away))
+            teams.insert(1, teams.pop())
+
+        self._fixtures = fixtures
+        return fixtures
+
+    def get_fixtures(self) -> list[Fixture]:
+        return list(self._fixtures)
 
     def record_match(self, home: str, away: str, home_goals: int, away_goals: int) -> None:
         if home_goals < 0 or away_goals < 0:
@@ -120,7 +179,13 @@ class LeagueService:
         return self._teams.get(name)
 
     def reset(self) -> None:
-        self._teams.clear()
+        for team in self._teams.values():
+            team.points = 0
+            team.wins = 0
+            team.draws = 0
+            team.losses = 0
+            team.goals_for = 0
+            team.goals_against = 0
         self._matches.clear()
 
 
@@ -139,10 +204,30 @@ def print_standings(league: LeagueService) -> None:
         )
 
 
-if __name__ == "__main__":
-    league = LeagueService()
+def print_fixtures(league: LeagueService) -> None:
+    fixtures = league.get_fixtures()
+    if not fixtures:
+        print("No fixtures generated")
+        return
 
-    print("=== 测试1: 常规排名 ===")
+    current_round = 0
+    for fx in fixtures:
+        if fx.round_num != current_round:
+            if current_round > 0:
+                print()
+            current_round = fx.round_num
+            print(f"--- Round {current_round} ---")
+        print(f"{fx.home} vs {fx.away}")
+
+
+if __name__ == "__main__":
+    league = LeagueService(["TeamA", "TeamB", "TeamC", "TeamD"])
+
+    print("=== 双循环赛程 ===")
+    league.generate_fixtures()
+    print_fixtures(league)
+
+    print("\n=== 测试1: 常规排名 ===")
     league.record_match("TeamA", "TeamB", 3, 1)
     league.record_match("TeamC", "TeamD", 2, 2)
     league.record_match("TeamA", "TeamC", 1, 0)
@@ -151,7 +236,7 @@ if __name__ == "__main__":
     league.record_match("TeamB", "TeamC", 1, 3)
     print_standings(league)
 
-    print("\n=== 测试2: 胜负关系排名（A和B同分同GD同GF，A对赛胜B） ===")
+    print("\n=== 测试2: 胜负关系排名 ===")
     league.reset()
     league.record_match("TeamA", "TeamB", 1, 0)
     league.record_match("TeamA", "TeamC", 1, 2)
